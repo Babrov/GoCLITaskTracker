@@ -1,25 +1,64 @@
 package main
 
 import (
-    "flag"
+    "errors"
     "fmt"
+    "os"
+    "time"
 )
 
-func main() {
-    // Define flags
-    name := flag.String("name", "World", "a name to say hello to")
-    age := flag.Int("age", 0, "your age")
-    isAdmin := flag.Bool("admin", false, "are you an admin?")
+type TaskItem struct {
+    ID          int       `json:"id"`
+    CreatedAt   time.Time `json:"created_at"`
+    UpdatedAt   time.Time `json:"updated_at"`
+    Description string    `json:"description"`
+    Status      string    `json:"status"`
+}
 
-    // Parse the flags
-    flag.Parse()
-
-    // Use the flag values
-    fmt.Printf("Hello, %s!\n", *name)
-    fmt.Printf("Age: %d\n", *age)
-    if *isAdmin {
-        fmt.Println("You are an admin.")
-    } else {
-        fmt.Println("You are not an admin.")
+func CreateTaskItem(id int, description string) (TaskItem, error) {
+    if description == "" {
+        return TaskItem{}, errors.New("can't create task item with empty description")
     }
+
+    return TaskItem{
+        ID:          id,
+        Status:      "todo",
+        CreatedAt:   time.Now(),
+        UpdatedAt:   time.Now(),
+        Description: description,
+    }, nil
+}
+
+func main() {
+    args := os.Args[1:]
+    if !(len(args) > 0) {
+        fmt.Println("No command provided")
+
+        os.Exit(0)
+    }
+
+    command := args[0]
+
+    if command == "add" {
+        if len(args) > 1 {
+            description := args[1]
+
+            newItem := add(description)
+
+            fmt.Printf("New item created, %v\n", newItem.ID)
+        } else {
+            fmt.Println("No description.")
+        }
+    }
+
+}
+
+func add(description string) TaskItem {
+    item, err := CreateTaskItem(1, description)
+
+    if err != nil {
+        fmt.Println("Error:", err)
+    }
+
+    return item
 }
