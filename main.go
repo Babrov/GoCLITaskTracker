@@ -1,122 +1,173 @@
 package main
 
 import (
-    "encoding/json"
-    "errors"
-    "fmt"
-    "os"
-    "time"
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
 )
 
-const filename = "tasks.json"
-
-type TaskItem struct {
-    ID          int       `json:"id"`
-    CreatedAt   time.Time `json:"created_at"`
-    UpdatedAt   time.Time `json:"updated_at"`
-    Description string    `json:"description"`
-    Status      string    `json:"status"`
-}
-
-type TaskList struct {
-    Tasks []TaskItem `json:"tasks"`
-}
-
-func CreateTaskItem(id int, description string) (TaskItem, error) {
-    if description == "" {
-        return TaskItem{}, errors.New("can't create task item with empty description")
-    }
-
-    return TaskItem{
-        ID:          id,
-        Status:      "todo",
-        CreatedAt:   time.Now(),
-        UpdatedAt:   time.Now(),
-        Description: description,
-    }, nil
-}
-
-func loadTasks() TaskList {
-    var tasks TaskList
-    if _, err := os.Stat(filename); os.IsNotExist(err) {
-        emptyTasks := TaskList{Tasks: []TaskItem{}}
-        data, _ := json.MarshalIndent(emptyTasks, "", "  ")
-        err := os.WriteFile(filename, data, 0644)
-        if err != nil {
-            return TaskList{}
-        }
-
-        return emptyTasks
-    }
-
-    file, err := os.ReadFile(filename)
-    if err != nil {
-        panic(err)
-    }
-
-    errr := json.Unmarshal(file, &tasks)
-
-    if errr != nil {
-        return TaskList{}
-    }
-
-    return tasks
-}
-
-func saveTasks(tasks TaskList) {
-    data, _ := json.MarshalIndent(tasks, "", "  ")
-    err := os.WriteFile(filename, data, 0644)
-    if err != nil {
-        return
-    }
-}
-
-func getNextID(tasks TaskList) int {
-    maxID := 0
-    for _, task := range tasks.Tasks {
-        if task.ID > maxID {
-            maxID = task.ID
-        }
-    }
-    return maxID + 1
-}
-
-func add(description string) {
-    tasks := loadTasks()
-
-    newTask := TaskItem{
-        ID:          getNextID(tasks),
-        CreatedAt:   time.Now(),
-        UpdatedAt:   time.Now(),
-        Description: description,
-        Status:      "todo",
-    }
-
-    tasks.Tasks = append(tasks.Tasks, newTask)
-    saveTasks(tasks)
-
-    fmt.Printf("Task '%s' added with ID %d\n", description, newTask.ID)
-}
+const FILE_NAME = "tasks.json"
 
 func main() {
-    args := os.Args[1:]
+	scanner := bufio.NewScanner(os.Stdin)
+	tasks := loadTasks(FILE_NAME)
 
-    if !(len(args) > 0) {
-        fmt.Println("No command provided")
+	fmt.Println("GO CLI TODO. Type 'help' for commands, or 'exit' to quit.")
 
-        os.Exit(0)
-    }
+	for {
+		fmt.Print("task-cli > ")
 
-    command := args[0]
+		if !scanner.Scan() {
+			break
+		}
 
-    if command == "add" {
-        if len(args) > 1 {
-            description := args[1]
+		input := strings.Split(scanner.Text(), " ")
+		command := input[0]
 
-            add(description)
-        } else {
-            fmt.Println("No description.")
-        }
-    }
+		if command == "" {
+			continue
+		}
 
+		switch command {
+		case "help":
+			fmt.Println("Available commands:")
+			fmt.Println("  list - list all tasks. [todo/in-progress/done]")
+			fmt.Println("  add - add a new task with a description. add <description>")
+			fmt.Println("  update - update a task. update <id> <description>")
+			fmt.Println("  delete - delete a task. delete <id>")
+			fmt.Println("  mark-in-progress - mark a task as in-progress. mark-in-progress <id>")
+			fmt.Println("  mark-done - mark a task as done. mark-done <id>")
+			fmt.Println("  exit - Exit the program")
+		case "list":
+			args := input[1:]
+			if len(args) > 0 && (args[0] == "todo" || args[0] == "in-progress" || args[0] == "done") {
+				statusFilter := args[0]
+				fmt.Println("Listing tasks with status:", statusFilter)
+				for _, task := range tasks.Tasks {
+					if task.Status == statusFilter {
+						fmt.Println("Id:", task.ID, "Description:", task.Description, "Status:", task.Status)
+					}
+				}
+				continue
+			} else {
+				fmt.Println("Listing all tasks:")
+
+				for _, task := range tasks.Tasks {
+					fmt.Println("Id:", task.ID, "Description:", task.Description, "Status:", task.Status)
+				}
+			}
+		case "add":
+			args := input[1:]
+			if len(args) > 0 {
+				description := args[0]
+
+				task := tasks.add(description)
+				fmt.Println("Task", description, "added with ID", task.ID)
+			} else {
+				fmt.Println("No description.")
+			}
+
+			saveTasks(FILE_NAME, tasks)
+
+		case "update":
+			args := input[1:]
+			if len(args) >= 2 {
+				id := args[0]
+				description := args[1]
+
+				_, err := tasks.update(id, description)
+				if err != nil {
+					fmt.Println(err)
+				}
+				saveTasks(FILE_NAME, tasks)
+				fmt.Println("Task", id, "updated.")
+			}
+		case "delete":
+			args := input[1:]
+			if len(args) > 0 {
+				id := args[0]
+
+				_, err := tasks.delete(id)
+				if err != nil {
+					fmt.Println(err)
+				}
+				saveTasks(FILE_NAME, tasks)
+				fmt.Println("Task", id, "deleted.")
+			}
+		case "mark-in-progress":
+			args := input[1:]
+			if len(args) > 0 {
+				id := args[0]
+
+				_, err := tasks.markAs(id, "in-progress")
+				if err != nil {
+					fmt.Println(err)
+				}
+				saveTasks(FILE_NAME, tasks)
+				fmt.Println("Task", id, "marked as in-progress.")
+
+			}
+		case "mark-done":
+			args := input[1:]
+			if len(args) > 0 {
+				id := args[0]
+
+				_, err := tasks.markAs(id, "done")
+				if err != nil {
+					fmt.Println(err)
+				}
+				saveTasks(FILE_NAME, tasks)
+				fmt.Println("Task", id, "marked as done.")
+
+			}
+		case "exit":
+			fmt.Println("Exiting CLI. Goodbye!")
+			return // Use return to exit the main function
+		default:
+			fmt.Printf("Unknown command: '%s'. Type 'help' for a list of commands.\n", command)
+		}
+	}
+
+	// Handle any errors that may have occurred during scanning
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading from input: %v\n", err)
+	}
+}
+
+func loadTasks(filename string) TaskList {
+	var tasks TaskList
+
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		emptyTasks := TaskList{Tasks: []TaskItem{}}
+		data, _ := json.MarshalIndent(emptyTasks, "", "  ")
+		err := os.WriteFile(filename, data, 0644)
+		if err != nil {
+			return TaskList{}
+		}
+
+		return emptyTasks
+	}
+
+	file, err := os.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+
+	err = json.Unmarshal(file, &tasks)
+
+	if err != nil {
+		return TaskList{}
+	}
+
+	return tasks
+}
+
+func saveTasks(filename string, tasks TaskList) {
+	data, _ := json.MarshalIndent(tasks, "", "  ")
+	err := os.WriteFile(filename, data, 0644)
+	if err != nil {
+		return
+	}
 }
